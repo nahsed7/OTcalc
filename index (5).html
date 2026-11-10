@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101923"><title>Labour OT Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--panel:#1b2735;--field:#101923;--line:#39485b;--blue:#65b7ff;--green:#63d6a0;--muted:#aab8c8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#eee;font:15px Arial,sans-serif;padding:16px;max-width:1400px;margin:auto}h1{color:var(--blue);font-size:24px;margin:0 0 5px}h2{font-size:18px;margin:0 0 12px}.sub,small,.muted{color:var(--muted)}.panel{background:var(--panel);padding:15px;border-radius:12px;margin:14px 0}.controls{display:flex;gap:9px;align-items:end;flex-wrap:wrap}.field{display:flex;flex-direction:column;gap:5px}label{font-size:13px;color:var(--muted)}select,input,button{background:var(--field);color:white;border:1px solid #405268;border-radius:7px;padding:10px;font:inherit;min-height:40px}input[type=file]{max-width:100%}button{background:#245b88;border:0;cursor:pointer;font-weight:600}button.secondary{background:#35485d}button.danger{background:#824343}button:disabled{opacity:.5;cursor:wait}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px}.stat{background:var(--field);padding:12px;border-radius:8px}.stat strong{display:block;font-size:23px;margin-top:5px;font-variant-numeric:tabular-nums}.good{color:var(--green);font-weight:bold}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:690px}td,th{padding:8px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;white-space:nowrap}th{color:var(--muted);position:sticky;top:0;background:var(--panel)}td input{width:92px;padding:8px}.holiday{background:#51432b66}.sunday{background:#24394f66}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.status{min-height:20px;color:var(--green);font-size:13px;white-space:pre-wrap}.scan-note{font-size:12px;color:var(--muted);line-height:1.5}.tag{display:inline-block;padding:3px 7px;border-radius:20px;background:#263d50;color:#b9dcf8;font-size:11px}@media(max-width:600px){body{padding:10px}.panel{padding:12px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat strong{font-size:20px}}
+</style></head><body>
+<header><h1>LABOUR OT MANAGER</h1><div class="sub">Monthly attendance and overtime calculator · Browser edition</div></header>
+<section class="panel"><div class="controls"><div class="field"><label for="month">Month</label><select id="month"></select></div><div class="field"><label for="year">Year</label><select id="year"></select></div><button id="loadBtn">Load month</button><span class="tag">Auto-saved in this browser</span></div></section>
+<section class="panel"><h2>Scan printed attendance sheet</h2><div class="scan-note">Choose a photograph of the printed sheet (it is straightened, de-inked and cleaned automatically) or an Excel workbook (.xlsx). Expected punch states: C/In and C/Out. OCR runs in your browser; first use requires an internet connection to load its engine.</div><div class="controls" style="margin-top:10px"><input type="file" id="sheetFile" accept="image/*,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" capture="environment"><button id="scanBtn">Scan / import sheet</button></div><div class="controls" style="margin-top:10px"><div class="field"><label for="gemKey">Google Gemini API key (best, free tier available)</label><input type="password" id="gemKey" placeholder="AIza…" autocomplete="off"></div><div class="field"><label for="gemModel">Gemini model</label><input type="text" id="gemModel" placeholder="gemini-flash-latest"></div></div><div class="controls" style="margin-top:10px"><div class="field"><label for="gKey">Google Cloud Vision key (optional backup)</label><input type="password" id="gKey" placeholder="AIza…" autocomplete="off"></div><button id="saveKeyBtn" class="secondary">Save keys</button><button id="clearKeyBtn" class="secondary">Remove keys</button><span id="keyState" class="tag"></span></div><div class="field" style="margin-top:12px"><label for="pasteBox">Or paste text copied from Google / Gemini (chart rows or "9/1/2026 7:54 AM C/In" lines)</label><textarea id="pasteBox" rows="6" style="background:var(--field);color:white;border:1px solid #405268;border-radius:7px;padding:10px;font:inherit;width:100%" placeholder="9/1/2026&#9;7:21 AM&#9;6:00 PM&#9;1.5&#10;9/4/2026&#9;8:03 AM&#9;6:00 PM&#9;1.0"></textarea></div><div class="actions"><button id="pasteBtn">Fill table from pasted text</button><button id="pasteClearBtn" class="secondary">Clear text</button></div><div id="scanStatus" class="status"></div><div id="scanPreview" class="scan-note"></div></section>
+<section class="panel stats"><div class="stat"><small>Normal days worked</small><strong id="days">0</strong></div><div class="stat"><small>Half days (not counted)</small><strong id="halfdays">0</strong></div><div class="stat"><small>Normal hours</small><strong id="normal">0.00</strong></div><div class="stat"><small>Normal OT</small><strong id="normalot">0.00</strong></div><div class="stat"><small>Sunday OT</small><strong id="sundayot">0.00</strong></div><div class="stat"><small>Holiday OT hours</small><strong id="holidayot">0.00</strong></div><div class="stat"><small>Holiday OT pay (×1.5)</small><strong id="holidaypay">0.00</strong></div><div class="stat"><small>Total payable OT</small><strong id="payable" class="good">0.00</strong></div></section>
+<section class="panel"><h2>Attendance</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Day / Holiday</th><th>Start</th><th>End</th><th>Normal</th><th>Normal OT</th><th>Sunday OT</th><th>Holiday OT</th></tr></thead><tbody id="rows"></tbody></table></div><div class="actions"><button id="calculateBtn">Calculate &amp; Save</button><button class="danger" id="clearBtn">Clear month</button><button class="secondary" id="exportBtn">Export backup JSON</button><button class="secondary" id="importBtn">Restore backup JSON</button><input id="backupFile" type="file" accept="application/json,.json" hidden></div><div id="status" class="status"></div></section>
+<section class="panel"><h2>Add a holiday</h2><div class="controls"><div class="field"><label for="holidayDate">Date</label><input type="date" id="holidayDate"></div><div class="field" style="flex:1;min-width:150px"><label for="holidayName">Holiday name</label><input type="text" id="holidayName" placeholder="Holiday name"></div><button id="addHolidayBtn">Add holiday</button></div><div id="holidayStatus" class="status"></div></section>
+<section class="panel"><h2>Calculation rules</h2><div class="scan-note">08:00–17:00 = normal working time. The lunch break is deducted every day it overlaps the shift, so 08:00–17:00 on a normal day = <b>8 normal hours</b>, not 9.<br>Before 08:00 and after 17:00 = ordinary OT.<br>Sunday and listed holidays = all OT (lunch deducted too).<br><b>Half day:</b> a normal day with 3+ hours worked and check-out at or before the half-day time below. It is not counted as a day and gets a fixed normal-OT credit instead of normal hours.<br><b>Days worked</b> counts only normal days: no Sundays, no holidays, no half days.<br>Overnight and multi-day shifts are supported: a check-out on a later date (In 9/14 07:57, Out 9/15 07:59) is stored as <b>07:59+1</b> and counted as one continuous shift, with normal time only 08:00–17:00 and everything else OT. You can type +1 yourself in the End box. OT rounds down to completed 30-minute units.<br>Importing a new sheet or pasted text clears the earlier table first (nothing is saved until Calculate &amp; Save).</div><div class="controls" style="margin-top:10px"><div class="field"><label for="cfgLunchStart">Lunch starts (HH:MM)</label><input id="cfgLunchStart" style="width:100px"></div><div class="field"><label for="cfgLunchMin">Lunch minutes</label><input id="cfgLunchMin" inputmode="numeric" style="width:100px"></div><div class="field"><label for="cfgHalfOut">Half day if out by (HH:MM)</label><input id="cfgHalfOut" style="width:120px"></div><div class="field"><label for="cfgHalfOT">Half-day normal OT (h)</label><input id="cfgHalfOT" inputmode="decimal" style="width:110px"></div><button id="cfgSaveBtn" class="secondary">Save rules</button></div><div id="cfgStatus" class="status"></div></section>
+<script>
+const INITIAL={"attendance":{"2026-09-01":{"start":"07:21","end":"18:00"},"2026-09-04":{"start":"08:03","end":"18:00"},"2026-09-05":{"start":"08:04","end":"18:00"},"2026-09-08":{"start":"07:52","end":"18:00"},"2026-09-09":{"start":"08:12","end":"18:00"},"2026-09-10":{"start":"08:11","end":"18:00"},"2026-09-11":{"start":"07:54","end":"17:00"},"2026-09-12":{"start":"08:05","end":"18:03"},"2026-09-16":{"start":"07:53","end":"19:00"},"2026-09-17":{"start":"07:57","end":"20:01"},"2026-09-18":{"start":"08:08","end":"20:01"},"2026-09-22":{"start":"08:03","end":"20:00"},"2026-09-23":{"start":"07:56","end":"19:00"},"2026-09-24":{"start":"08:00","end":"20:00"},"2026-09-25":{"start":"07:59","end":"21:01"},"2026-09-28":{"start":"07:56","end":"20:01"},"2026-09-29":{"start":"07:39","end":"19:00"},"2026-09-30":{"start":"08:00","end":"19:07"},"2026-11-01":{"start":"07:21","end":"18:00"},"2026-11-04":{"start":"08:03","end":"18:00"},"2026-11-05":{"start":"08:04","end":"18:00"},"2026-11-08":{"start":"07:52","end":"18:00"},"2026-11-09":{"start":"08:12","end":"18:00"},"2026-11-10":{"start":"08:11","end":"18:00"},"2026-11-11":{"start":"07:54","end":"17:00"},"2026-11-12":{"start":"08:05","end":"18:03"},"2026-11-16":{"start":"07:53","end":"19:00"},"2026-11-17":{"start":"07:57","end":"20:01"},"2026-11-18":{"start":"08:08","end":"20:01"},"2026-11-22":{"start":"08:03","end":"20:00"},"2026-11-23":{"start":"07:56","end":"19:00"},"2026-11-24":{"start":"08:00","end":"20:00"},"2026-11-25":{"start":"07:59","end":"19:01"},"2026-11-28":{"start":"07:56","end":"20:01"},"2026-11-29":{"start":"07:39","end":"19:00"},"2026-11-30":{"start":"09:00","end":"19:00"}},"holidays":{"2026-01-03":"Duruthu Poya","2026-01-15":"Thai Pongal","2026-02-01":"Navam Poya","2026-02-04":"Independence Day","2026-02-15":"Mahasivarathri","2026-03-02":"Medin Poya","2026-03-21":"Ramazan","2026-04-01":"Bak Poya","2026-04-03":"Good Friday","2026-04-13":"New Year Holiday","2026-04-14":"Sinhala Tamil New Year","2026-05-01":"Vesak Poya / May Day","2026-05-02":"Day after Vesak","2026-05-28":"Hadji Festival","2026-05-30":"Adhi Poson Poya","2026-06-29":"Poson Poya","2026-07-29":"Esala Poya","2026-08-26":"Milad-Un-Nabi","2026-08-27":"Nikini Poya","2026-09-26":"Binara Poya","2026-10-25":"Vap Poya","2026-11-08":"Deepavali","2026-11-24":"Il Poya","2026-12-23":"Unduvap Poya","2026-12-25":"Christmas"}};
+const KEY='labour_ot_manager_v1';
+function clone(x){return JSON.parse(JSON.stringify(x))}
+let store;try{store=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){store=null}if(!store||!store.attendance||!store.holidays)store=clone(INITIAL);
+const $=id=>document.getElementById(id);const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+months.forEach((m,i)=>$('month').add(new Option(m,i+1)));for(let y=2024;y<=2038;y++)$('year').add(new Option(y,y));
+const now=new Date();$('month').value=now.getMonth()+1;$('year').value=now.getFullYear();let records=[];let lastResults={};
+function persist(){localStorage.setItem(KEY,JSON.stringify(store))}
+function dateKey(y,m,d){return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`}
+function daysInMonth(y,m){return new Date(y,m,0).getDate()}
+function getMonth(){let y=+$('year').value,m=+$('month').value;records=[];for(let d=1;d<=daysInMonth(y,m);d++){let key=dateKey(y,m,d),dt=new Date(y,m-1,d),rec=store.attendance[key]||{};records.push({date:key,day:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()],holiday:store.holidays[key]||'',start:rec.start||'',end:rec.end||''})}lastResults={};draw();resetTotals();$('status').textContent='Month loaded.'}
+function parseTime(s){if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(s))throw Error('Use 24-hour HH:MM format (for example 07:30 or 18:05).');let [h,m]=s.split(':').map(Number);return h*60+m}
+const CFG_KEY='lom_cfg',HALF_MIN_HOURS=3;let CFG={lunchStart:'12:00',lunchMinutes:60,halfOut:'15:00',halfOT:1.5};try{Object.assign(CFG,JSON.parse(localStorage.getItem(CFG_KEY)||'{}'))}catch(e){}
+function lunchOverlap(from,to,wd){let m=parseTime(CFG.lunchStart),ls=new Date(wd);ls.setHours(Math.floor(m/60),m%60,0,0);let le=new Date(ls.getTime()+CFG.lunchMinutes*60000);return Math.max(0,Math.floor((Math.min(to,le)-Math.max(from,ls))/60000))}
+function calculateDay(day,start,end){let [y,mo,da]=day.split('-').map(Number),em=String(end).trim().match(/^(\d\d:\d\d)(?:\+([1-3]))?$/);if(!em)throw Error('Use 24-hour HH:MM format (for example 07:30 or 18:05). For a check-out on a later date add +1, e.g. 07:59+1.');let plus=+(em[2]||0),endT=em[1],s=new Date(y,mo-1,da,Math.floor(parseTime(start)/60),parseTime(start)%60),e=new Date(y,mo-1,da+plus,Math.floor(parseTime(endT)/60),parseTime(endT)%60),overnight=plus>0;if(!plus&&e<=s){e.setDate(e.getDate()+1);overnight=true}
+let normalDay=!store.holidays[day]&&new Date(y,mo-1,da).getDay()!==0,spanH=(e-s)/3600000,half=normalDay&&!overnight&&spanH>=HALF_MIN_HOURS&&parseTime(endT)<=parseTime(CFG.halfOut),counts_day=normalDay&&!half&&spanH>=HALF_MIN_HOURS;
+if(half){let h=+(+CFG.halfOT).toFixed(2);return {normal:0,normal_ot:h,normal_ot_actual:h,sunday_ot:0,sunday_ot_actual:0,holiday_ot:0,holiday_ot_actual:0,holiday_pay:0,payable_ot:h,half_day:true,counts_day:false}}
+let normal=0,periods=[],cur=new Date(s);while(cur<e){let wd=new Date(cur.getFullYear(),cur.getMonth(),cur.getDate()),key=dateKey(wd.getFullYear(),wd.getMonth()+1,wd.getDate()),mid=new Date(wd);mid.setDate(mid.getDate()+1);let eight=new Date(wd);eight.setHours(8,0,0,0);let seventeen=new Date(wd);seventeen.setHours(17,0,0,0);let kind,boundary;if(store.holidays[key]){kind='holiday_ot';boundary=new Date(Math.min(e,mid))}else if(wd.getDay()===0){kind='sunday_ot';boundary=new Date(Math.min(e,mid))}else if(cur<eight){kind='normal_ot';boundary=new Date(Math.min(e,eight))}else if(cur<seventeen){kind='normal';boundary=new Date(Math.min(e,seventeen))}else{kind='normal_ot';boundary=new Date(Math.min(e,mid))}let mins=Math.floor((boundary-cur)/60000),lunch=lunchOverlap(cur,boundary,wd);if(kind==='normal'){normal+=mins-lunch}else if(periods.length&&periods.at(-1).kind===kind&&periods.at(-1).end.getTime()===cur.getTime()){periods.at(-1).end=boundary;periods.at(-1).lunch+=lunch}else periods.push({start:new Date(cur),end:boundary,kind,lunch});cur=boundary}
+let actual={normal_ot:0,sunday_ot:0,holiday_ot:0},credited={normal_ot:0,sunday_ot:0,holiday_ot:0};for(let p of periods){let mins=Math.floor((p.end-p.start)/60000)-p.lunch;actual[p.kind]+=mins;credited[p.kind]+=Math.floor(mins/30)*.5}let holiday_pay=credited.holiday_ot*1.5,payable_ot=credited.normal_ot+credited.sunday_ot+holiday_pay;counts_day=counts_day&&normal>0;return {normal:+(normal/60).toFixed(2),normal_ot:+credited.normal_ot.toFixed(2),normal_ot_actual:+(actual.normal_ot/60).toFixed(2),sunday_ot:+credited.sunday_ot.toFixed(2),sunday_ot_actual:+(actual.sunday_ot/60).toFixed(2),holiday_ot:+credited.holiday_ot.toFixed(2),holiday_ot_actual:+(actual.holiday_ot/60).toFixed(2),holiday_pay:+holiday_pay.toFixed(2),payable_ot:+payable_ot.toFixed(2),half_day:false,counts_day}}
+function draw(){let tbody=$('rows');tbody.replaceChildren();records.forEach((r,i)=>{let tr=document.createElement('tr');if(r.holiday)tr.className='holiday';else if(r.day==='Sun')tr.className='sunday';let result=lastResults[r.date]||{};let vals=[String(+r.date.slice(8)),(r.holiday||r.day)+(result.half_day?' · half day':'')];vals.forEach(v=>{let td=document.createElement('td');td.textContent=v;tr.append(td)});for(let field of ['start','end']){let td=document.createElement('td'),input=document.createElement('input');input.type='text';input.inputMode='numeric';input.placeholder='HH:MM';input.value=r[field];input.setAttribute('aria-label',field+' '+r.date);input.addEventListener('change',()=>{r[field]=input.value.trim();lastResults={};resetTotals()});td.append(input);tr.append(td)}for(let k of ['normal','normal_ot','sunday_ot','holiday_ot']){let td=document.createElement('td');td.textContent=result[k]??'–';if(k==='holiday_ot')td.className='good';tr.append(td)}tbody.append(tr)})}
+function resetTotals(){for(let id of ['days','halfdays','normal','normalot','sundayot','holidayot','holidaypay','payable'])$(id).textContent=(id==='days'||id==='halfdays')?'0':'0.00'}
+function saveCalculate(){try{let totals={days:0,half_days:0,normal:0,normal_ot:0,sunday_ot:0,holiday_ot:0,holiday_pay:0,payable_ot:0},results={};for(let r of records){if(!r.start&&!r.end){delete store.attendance[r.date];continue}if(!r.start||!r.end)throw Error(r.date+': Missing start or end time.');let result=calculateDay(r.date,r.start,r.end);results[r.date]=result;if(result.counts_day)totals.days++;if(result.half_day)totals.half_days++;store.attendance[r.date]={start:r.start,end:r.end};for(let k of Object.keys(totals))if(k!=='days'&&k!=='half_days')totals[k]+=result[k]}persist();lastResults=results;draw();$('days').textContent=totals.days;$('halfdays').textContent=totals.half_days;for(let [k,id] of Object.entries({normal:'normal',normal_ot:'normalot',sunday_ot:'sundayot',holiday_ot:'holidayot',holiday_pay:'holidaypay',payable_ot:'payable'}))$(id).textContent=totals[k].toFixed(2);$('status').textContent='Saved successfully in this browser.'}catch(e){$('status').textContent=e.message}}
+function clearMonth(){if(!confirm('Clear this month\'s attendance?'))return;records.forEach(r=>{delete store.attendance[r.date];r.start='';r.end=''});persist();lastResults={};draw();resetTotals();$('status').textContent='Month cleared.'}
+function addHoliday(){let d=$('holidayDate').value,n=$('holidayName').value.trim();if(!d||!n){$('holidayStatus').textContent='Choose a date and enter a holiday name.';return}store.holidays[d]=n;persist();getMonth();$('holidayStatus').textContent='Holiday added.'}
+function parsePunchDateTime(value){if(value instanceof Date&&!isNaN(value)){return {date:dateKey(value.getFullYear(),value.getMonth()+1,value.getDate()),time:`${String(value.getHours()).padStart(2,'0')}:${String(value.getMinutes()).padStart(2,'0')}`}}let t=String(value??'').trim(),m=t.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);if(!m){m=t.match(/(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/);if(m){let [_,y,mo,d,h,mi]=m;return {date:dateKey(+y,+mo,+d),time:`${String(+h).padStart(2,'0')}:${mi}`}}return null}let [_,a,b,y,hh,mi,ap]=m;let mo=+a,d=+b,h=+hh;if(ap){if(h<1||h>12||+mi>59)return null;if(ap.toUpperCase()==='PM'&&h!==12)h+=12;if(ap.toUpperCase()==='AM'&&h===12)h=0}return {date:dateKey(+y,mo,d),time:`${String(h).padStart(2,'0')}:${mi}`}}
+function stateKind(s){let x=String(s||'').toLowerCase().replace(/[^a-z\/]/g,'').replace(/l/g,'i');return /out/.test(x)?'out':(/c\/?in|^in$/.test(x)?'in':null)}
+/* ---------- OCR text parsing (tolerant of common OCR mistakes) ---------- */
+function parseOcrLine(line){
+ let t=String(line).replace(/[|\[\]{}_~`]/g,' ');
+ let m=t.match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(20\d\d)\s+(\d{1,2})\s*[:.;]\s*(\d{2})\s*([AaPp])\s*[MmNnHh]?/);
+ if(!m)return null;
+ let [_,a,b,y,hh,mi,ap]=m;if(+a<1||+a>12||+b<1||+b>31||+hh<1||+hh>12||+mi>59)return null;
+ let p=parsePunchDateTime(`${+a}/${+b}/${y} ${+hh}:${mi} ${ap.toUpperCase()}M`);if(!p)return null;
+ let rest=t.slice(m.index+m[0].length),kind=null;
+ if(/o\s*u\s*t|0\s*u\s*t|ou[t1]/i.test(rest))kind='out';else if(/[il1!]\s*n\b|c\s*\/\s*[il1]/i.test(rest))kind='in';
+ return {...p,kind};
+}
+function parseOcrText(text){
+ let punches=[],inferred=0,prev=null;
+ for(let line of String(text).split(/\r?\n/)){let p=parseOcrLine(line);if(!p)continue;
+  if(!p.kind){p.kind=prev==='in'?'out':'in';p.guessed=true;inferred++}
+  prev=p.kind;punches.push(p)}
+ return {punches,inferred};
+}
+/* ---------- punch pairing ---------- */
+function hm(t){return parseTime(t)}
+function pairPunches(punches){
+ const MAXH=36,utc=d=>{let [y,m,dd]=d.split('-').map(Number);return Date.UTC(y,m-1,dd)},dt=p=>{let [y,m,d]=p.date.split('-').map(Number),[h,mi]=p.time.split(':').map(Number);return new Date(y,m-1,d,h,mi)};
+ let seen=new Set(),list=[],warnings=[],entries=[];
+ for(let p of punches){let k=p.date+' '+p.time+' '+p.kind;if(seen.has(k))continue;seen.add(k);list.push(p)}
+ list.sort((a,b)=>(a.date+' '+a.time).localeCompare(b.date+' '+b.time)||((a.kind==='out'?-1:0)-(b.kind==='out'?-1:0)));
+ let pend=null,last=null;
+ let close=(i,o)=>{let plus=Math.round((utc(o.date)-utc(i.date))/864e5),e={date:i.date,start:i.time,end:o.time+(plus?'+'+plus:''),plus,outDate:o.date};entries.push(e);return e};
+ for(let p of list){
+  if(p.kind==='in'){
+   if(!pend&&last&&last.date===p.date)continue; // extra C/In on a day that is already paired
+   if(pend){if(pend.date===p.date)continue;warnings.push(`${pend.date}: C/In ${pend.time} has no matching C/Out.`)}
+   pend=p;last=null}
+  else{
+   if(pend){let hrs=(dt(p)-dt(pend))/36e5;
+    if(hrs>0&&hrs<=MAXH){last=close(pend,p);pend=null}
+    else warnings.push(`${p.date}: C/Out ${p.time} has no matching C/In (the open C/In ${pend.date} ${pend.time} is more than ${MAXH} h earlier).`)}
+   else if(last&&(last.outDate===p.date||last.date===p.date)){last.end=p.time+(last.plus?'+'+last.plus:'');last.outDate=p.date}
+   else warnings.push(`${p.date}: C/Out ${p.time} has no matching C/In.`)}}
+ if(pend)warnings.push(`${pend.date}: C/In ${pend.time} has no matching C/Out.`);
+ for(let e of entries){let [eh,em]=e.end.slice(0,5).split(':').map(Number),[sh,sm]=e.start.split(':').map(Number),hrs=(e.plus*1440+eh*60+em-sh*60-sm)/60;
+  if(hrs<3)warnings.push(`${e.date}: only ${hrs.toFixed(1)} h (${e.start}–${e.end}). Possibly a struck-out or cancelled punch, so verify.`);
+  else if(e.plus>0)warnings.push(`${e.date}: continuous shift ${e.start} → ${e.end} (${hrs.toFixed(1)} h across midnight). Normal time is 08:00–17:00 only; everything else counts as OT. Verify.`)}
+ return {entries:entries.map(({plus,outDate,...r})=>r),warnings}}
+/* ---------- image preprocessing for photographed sheets ---------- */
+async function loadBitmap(file){if(window.createImageBitmap){try{return await createImageBitmap(file,{imageOrientation:'from-image'})}catch(e){try{return await createImageBitmap(file)}catch(_){}}}
+ return await new Promise((res,rej)=>{let img=new Image();img.onload=()=>res(img);img.onerror=()=>rej(Error('Could not open image.'));img.src=URL.createObjectURL(file)})}
+function binarize(src,w,h){ // removes coloured ink, adaptive threshold -> Uint8Array (1=ink)
+ let g=new Uint8Array(w*h);
+ for(let i=0,j=0;i<src.length;i+=4,j++){let r=src[i],gg=src[i+1],b=src[i+2],mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);
+  g[j]=(mx-mn>55)?255:Math.round(.299*r+.587*gg+.114*b)}
+ let W=w+1,I=new Float64Array(W*(h+1));
+ for(let y=0;y<h;y++){let row=0;for(let x=0;x<w;x++){row+=g[y*w+x];I[(y+1)*W+x+1]=I[y*W+x+1]+row}}
+ let out=new Uint8Array(w*h),r=Math.max(12,Math.round(w/60));
+ for(let y=0;y<h;y++){let y0=Math.max(0,y-r),y1=Math.min(h,y+r+1);for(let x=0;x<w;x++){let x0=Math.max(0,x-r),x1=Math.min(w,x+r+1);
+  let area=(x1-x0)*(y1-y0),sum=I[y1*W+x1]-I[y0*W+x1]-I[y1*W+x0]+I[y0*W+x0],mean=sum/area;
+  out[y*w+x]=(g[y*w+x]<mean*.82&&g[y*w+x]<200)?1:0}}
+ return out}
+function estimateSkew(bin,w,h){ // projection-profile search, returns degrees
+ let step=Math.max(1,Math.round(w/700)),pts=[];
+ for(let y=0;y<h;y+=step)for(let x=0;x<w;x+=step)if(bin[y*w+x])pts.push(x,y);
+ let best=0,bestScore=-1;
+ for(let a=-6;a<=6;a+=.25){let rad=a*Math.PI/180,s=Math.sin(rad),c=Math.cos(rad),bins=new Float64Array(Math.ceil(h*1.3/step)+w),off=Math.ceil(w/step)+2;
+  for(let i=0;i<pts.length;i+=2){let yy=Math.round((pts[i+1]*c-pts[i]*s)/step)+off;if(yy>=0&&yy<bins.length)bins[yy]++}
+  let sc=0;for(let v of bins)sc+=v*v;if(sc>bestScore){bestScore=sc;best=a}}
+ return best}
+async function preprocessImage(file,quarter=0){
+ let bmp=await loadBitmap(file),bw=bmp.width,bh=bmp.height,scale=Math.max(.5,Math.min(2.5,3000/Math.max(bw,bh)));
+ let w=Math.round(bw*scale),h=Math.round(bh*scale),c=document.createElement('canvas');
+ if(quarter%2){c.width=h;c.height=w}else{c.width=w;c.height=h}
+ let ctx=c.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+ ctx.save();ctx.translate(c.width/2,c.height/2);ctx.rotate(quarter*Math.PI/2);ctx.drawImage(bmp,-w/2,-h/2,w,h);ctx.restore();
+ w=c.width;h=c.height;
+ let bin=binarize(ctx.getImageData(0,0,w,h).data,w,h),angle=estimateSkew(bin,w,h);
+ // draw the binary image, rotate by -angle to level the rows
+ let c2=document.createElement('canvas');c2.width=w;c2.height=h;let x2=c2.getContext('2d',{willReadFrequently:true}),img=x2.createImageData(w,h);
+ for(let i=0;i<bin.length;i++){let v=bin[i]?0:255;img.data[i*4]=img.data[i*4+1]=img.data[i*4+2]=v;img.data[i*4+3]=255}
+ x2.putImageData(img,0,0);
+ let c3=document.createElement('canvas');c3.width=w;c3.height=h;let x3=c3.getContext('2d',{willReadFrequently:true});x3.fillStyle='#fff';x3.fillRect(0,0,w,h);
+ x3.translate(w/2,h/2);x3.rotate(-angle*Math.PI/180);x3.drawImage(c2,-w/2,-h/2);
+ let d=x3.getImageData(0,0,w,h),px=d.data,b2=new Uint8Array(w*h);
+ for(let i=0;i<b2.length;i++)b2[i]=px[i*4]<140?1:0;
+ // erase long table rules (horizontal and vertical runs)
+ let HL=Math.round(w/45),VL=Math.round(h/30);
+ for(let y=0;y<h;y++){let run=0;for(let x=0;x<=w;x++){if(x<w&&b2[y*w+x])run++;else{if(run>=HL)for(let k=x-run;k<x;k++)b2[y*w+k]=0;run=0}}}
+ for(let x=0;x<w;x++){let run=0;for(let y=0;y<=h;y++){if(y<h&&b2[y*w+x])run++;else{if(run>=VL)for(let k=y-run;k<y;k++)b2[k*w+x]=0;run=0}}}
+ for(let i=0;i<b2.length;i++){let v=b2[i]?0:255;px[i*4]=px[i*4+1]=px[i*4+2]=v}
+ x3.setTransform(1,0,0,1,0,0);x3.putImageData(d,0,0);
+ return {canvas:c3,angle}}
+/* ---------- Google Cloud Vision OCR ---------- */
+const GKEY='lom_vision_key';
+function getVisionKey(){try{return localStorage.getItem(GKEY)||''}catch(e){return ''}}
+async function fileToJpegBase64(file){let bmp=await loadBitmap(file),s=Math.min(1,3000/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);let x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.92).split(',')[1]}
+async function visionOcr(file,key){
+ let content=await fileToJpegBase64(file);
+ let res=await fetch('https://vision.googleapis.com/v1/images:annotate?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requests:[{image:{content},features:[{type:'DOCUMENT_TEXT_DETECTION'}],imageContext:{languageHints:['en']}}]})});
+ let j=await res.json().catch(()=>({}));
+ if(!res.ok)throw Error(j.error?.message||('HTTP '+res.status));
+ let r=j.responses?.[0];if(r?.error)throw Error(r.error.message);
+ return r?.fullTextAnnotation||null}
+function kindFromText(t){return /o\s*u\s*t|0\s*u\s*t/i.test(t)?'out':(/c\s*\/\s*[il1]\s*n|^\s*[il1]n\s*$/i.test(t)?'in':null)}
+function parseVision(fta){
+ let words=[];
+ for(let pg of fta?.pages||[])for(let b of pg.blocks||[])for(let p of b.paragraphs||[])for(let w of p.words||[]){
+  let t=(w.symbols||[]).map(s=>s.text).join(''),v=w.boundingBox?.vertices||[];if(v.length<4)continue;
+  let X=i=>v[i].x||0,Y=i=>v[i].y||0;
+  words.push({t,x:(X(0)+X(1)+X(2)+X(3))/4,y:(Y(0)+Y(1)+Y(2)+Y(3))/4,h:Math.hypot(X(3)-X(0),Y(3)-Y(0)),ang:Math.atan2(Y(1)-Y(0),X(1)-X(0))})}
+ if(!words.length)return {punches:[],inferred:0,text:''};
+ let angs=words.filter(w=>w.t.length>=3).map(w=>w.ang).sort((a,b)=>a-b),a=angs.length?angs[angs.length>>1]:0,c=Math.cos(a),s=Math.sin(a);
+ words.forEach(w=>{w.X=w.x*c+w.y*s;w.Y=-w.x*s+w.y*c});
+ let hs=words.map(w=>w.h).sort((a,b)=>a-b),mh=hs[hs.length>>1]||20;
+ words.sort((p,q)=>p.Y-q.Y);let rows=[];
+ for(let w of words){let r=rows.at(-1);if(r&&Math.abs(w.Y-r.Y)<=mh*.6){r.w.push(w);r.Y=r.w.reduce((q,z)=>q+z.Y,0)/r.w.length}else rows.push({Y:w.Y,w:[w]})}
+ let dts=[],sts=[],lines=[];
+ for(let r of rows){r.w.sort((p,q)=>p.X-q.X);let text=r.w.map(w=>w.t).join(' ');lines.push(text);let p=parseOcrLine(text);
+  if(p)dts.push({...p,Y:r.Y});else{let k=kindFromText(text);if(k)sts.push({kind:k,Y:r.Y,used:false})}}
+ let inferred=0,prev=null;
+ for(let d of dts){
+  if(!d.kind){let best=null;for(let st of sts)if(!st.used&&Math.abs(st.Y-d.Y)<=mh*2&&(!best||Math.abs(st.Y-d.Y)<Math.abs(best.Y-d.Y)))best=st;
+   if(best){best.used=true;d.kind=best.kind}else{d.kind=prev==='in'?'out':'in';d.guessed=true;inferred++}}
+  prev=d.kind}
+ return {punches:dts.map(({Y,...p})=>p),inferred,text:lines.join('\n')}}
+async function runTesseract(file,setStatus){
+ if(!window.Tesseract)throw Error('OCR library could not load. Connect to the internet and refresh.');
+ let status='',worker=await Tesseract.createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text')setStatus(`${status} ${Math.round((m.progress||0)*100)}%`)}});
+ try{try{await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1',tessedit_char_whitelist:'0123456789/:.-APMNHCInOutl '})}catch(e){}
+  let best={punches:[],inferred:0,text:'',label:''};
+  for(let [label,q] of [['cleaned photo',0],['rotated 90°',1],['rotated 270°',3],['upside down',2]]){status=`Cleaning photo (${label})…`;setStatus(status);await new Promise(r=>setTimeout(r,30));
+   let pre=await preprocessImage(file,q);status=`Reading text (${label}, skew ${pre.angle.toFixed(1)}°)…`;
+   let {data:{text}}=await worker.recognize(pre.canvas),r=parseOcrText(text);
+   if(r.punches.length>best.punches.length)best={...r,text,label:'built-in OCR, '+label};
+   if(r.punches.length>=2&&r.inferred<=r.punches.length/3)break}
+  if(best.punches.length<2){status='Trying the original photo…';setStatus(status);let {data:{text}}=await worker.recognize(file),r=parseOcrText(text);if(r.punches.length>best.punches.length)best={...r,text,label:'built-in OCR, original photo'}}
+  return best}finally{try{await worker.terminate()}catch(_){}}}
+/* ---------- Google Gemini (reads the sheet like Google's AI tools) ---------- */
+const GEMKEY='lom_gemini_key',GEMMODEL='lom_gemini_model';
+function getGeminiKey(){try{return localStorage.getItem(GEMKEY)||''}catch(e){return ''}}
+function getGeminiModel(){try{return localStorage.getItem(GEMMODEL)||'gemini-flash-latest'}catch(e){return 'gemini-flash-latest'}}
+const GEM_PROMPT=`You are reading a photographed attendance sheet from a biometric clock. Columns are usually Name, Time and State (C/In or C/Out); an AC-No. may also be shown. Read EVERY punch exactly as printed.
+Rules:
+- date: ISO YYYY-MM-DD. Printed dates are month/day/year (9/1/2026 = 2026-09-01).
+- time: 24-hour HH:MM (7:54 AM = 07:54, 6:00 PM = 18:00).
+- state: "in" for C/In, "out" for C/Out.
+- struck_through: true if the punch (or its row) is crossed out with a pen. Still list it.
+- manual: true if the punch was handwritten/added by hand rather than printed.
+- Never guess. If a value is unreadable, leave that punch out and describe it in warnings.
+- notes: read handwritten margin notes. Attach each to the date of the row or bracket it sits beside. ot_hours is the number if the note is an overtime figure (e.g. "02" = 2, "1.5" = 1.5), otherwise null. remark is any handwritten words.
+- Also return the employee name, AC-No. and approver name if visible, otherwise null.`;
+const GEM_SCHEMA={type:'OBJECT',properties:{employee_name:{type:'STRING',nullable:true},ac_no:{type:'STRING',nullable:true},approved_by:{type:'STRING',nullable:true},
+ punches:{type:'ARRAY',items:{type:'OBJECT',properties:{date:{type:'STRING'},time:{type:'STRING'},state:{type:'STRING',enum:['in','out']},struck_through:{type:'BOOLEAN'},manual:{type:'BOOLEAN'}},required:['date','time','state']}},
+ notes:{type:'ARRAY',items:{type:'OBJECT',properties:{date:{type:'STRING'},ot_hours:{type:'NUMBER',nullable:true},remark:{type:'STRING',nullable:true}},required:['date']}},
+ warnings:{type:'ARRAY',items:{type:'STRING'}}},required:['punches']};
+async function geminiExtract(file,key,model){
+ let data=await fileToJpegBase64(file);
+ let res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
+  body:JSON.stringify({contents:[{parts:[{text:GEM_PROMPT},{inline_data:{mime_type:'image/jpeg',data}}]}],generationConfig:{temperature:0,responseMimeType:'application/json',responseSchema:GEM_SCHEMA}})});
+ let j=await res.json().catch(()=>({}));
+ if(!res.ok)throw Error(j.error?.message||('HTTP '+res.status));
+ let txt=(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
+ if(!txt)throw Error('Gemini returned no text ('+(j.promptFeedback?.blockReason||j.candidates?.[0]?.finishReason||'empty')+').');
+ let o;try{o=JSON.parse(txt)}catch(e){throw Error('Gemini reply was not valid JSON.')}
+ let punches=[],warnings=(o.warnings||[]).map(w=>'Gemini: '+w);
+ for(let p of o.punches||[]){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(p.date||'')||!/^\d{1,2}:\d{2}$/.test(p.time||'')||!['in','out'].includes(p.state))continue;
+  let t=p.time.padStart(5,'0');if(+t.slice(0,2)>23||+t.slice(3)>59)continue;
+  if(p.struck_through){warnings.push(`${p.date}: crossed-out ${p.state==='in'?'C/In':'C/Out'} ${t} was ignored.`);continue}
+  if(p.manual)warnings.push(`${p.date}: ${p.state==='in'?'C/In':'C/Out'} ${t} was written by hand on the sheet.`);
+  punches.push({date:p.date,time:t,kind:p.state})}
+ let notes=(o.notes||[]).filter(n=>/^\d{4}-\d{2}-\d{2}$/.test(n.date||''));
+ let header=[o.employee_name&&'Employee: '+o.employee_name,o.ac_no&&'AC-No: '+o.ac_no,o.approved_by&&'Approved by: '+o.approved_by].filter(Boolean).join(' · ');
+ return {punches,inferred:0,warnings,notes,header,label:'Gemini ('+model+')'}}
+function initVisionUI(){
+ let vk=getVisionKey(),gk=getGeminiKey();
+ $('gemKey').value=gk?'••••••••••••':'';$('gemModel').value=getGeminiModel();$('gKey').value=vk?'••••••••••••':'';
+ $('keyState').textContent=gk?'Gemini: ON':(vk?'Google Vision: ON':'No Google key (using built-in OCR)');
+ let put=(inp,key)=>{let v=inp.value.trim();if(!v||/^•+$/.test(v))return false;try{localStorage.setItem(key,v)}catch(e){}return true};
+ $('saveKeyBtn').onclick=()=>{let a=put($('gemKey'),GEMKEY),b=put($('gKey'),GKEY);let m=$('gemModel').value.trim();if(m)try{localStorage.setItem(GEMMODEL,m)}catch(e){}initVisionUI();$('scanStatus').textContent=(a||b)?'Saved in this browser only (not included in backups).':'Paste an API key first.'};
+ $('clearKeyBtn').onclick=()=>{try{localStorage.removeItem(GEMKEY);localStorage.removeItem(GKEY);localStorage.removeItem(GEMMODEL)}catch(e){}initVisionUI()}}
+function applyResult(result,warnings,notes){
+  if(result.entries.length){let cnt={};for(let e of result.entries){let k=e.date.slice(0,7);cnt[k]=(cnt[k]||0)+1}let top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0],[ty,tm]=top.split('-').map(Number);if(+$('year').value!==ty||+$('month').value!==tm){$('year').value=ty;$('month').value=tm;getMonth()}}
+  let y=+$('year').value,m=+$('month').value;let updates=result.entries.filter(e=>e.date.slice(0,7)===`${y}-${String(m).padStart(2,'0')}`);let outside=result.entries.filter(e=>!updates.includes(e)).map(e=>e.date);
+  if(!updates.length){$('scanStatus').textContent='No complete attendance pairs found. '+[...warnings,...result.warnings].join(' | ');return}
+  records.forEach(r=>{r.start='';r.end=''}); // new sheet replaces the earlier table (nothing is saved until Calculate & Save)
+  for(let e of updates){let r=records.find(x=>x.date===e.date);if(r){r.start=e.start;r.end=e.end}}lastResults={};draw();
+  for(let n of notes){if(n.ot_hours==null)continue;let e=updates.find(u=>u.date===n.date);if(!e)continue;try{let r=calculateDay(e.date,e.start,e.end),mine=r.normal_ot+r.sunday_ot+r.holiday_ot;if(Math.abs(mine-n.ot_hours)>.01)warnings.push(`${e.date}: sheet notes ${n.ot_hours} h OT, app calculates ${mine.toFixed(1)} h.`)}catch(_){}}
+  for(let e of updates){try{let r=calculateDay(e.date,e.start,e.end);if(r.half_day)warnings.push(`${e.date}: half day (${e.start}–${e.end}) is not counted as a day; credited ${r.normal_ot} h normal OT.`)}catch(_){}}
+  let all=[...warnings,...result.warnings];
+  $('scanStatus').textContent=`${updates.length} attendance days filled for ${months[m-1]} ${y}. Review times and press Calculate & Save.`+(outside.length?'\nDates outside this month skipped: '+outside.join(', '):'')+(all.length?'\nNeeds review:\n• '+all.join('\n• '):'')
+}
+/* ---------- paste copied text (chart or punch list) ---------- */
+function to24(h,m,ap,role){h=+h;m=+m;if(m>59)return null;
+ if(ap){ap=ap[0].toUpperCase();if(h<1||h>12)return null;if(ap==='P'&&h!==12)h+=12;if(ap==='A'&&h===12)h=0}
+ else{if(h>23)return null;if(role==='out'&&h>=1&&h<=11)h+=12} // check-outs without AM/PM are afternoon
+ return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`}
+function parseTextTable(text){
+ let chart={},punches=[],warnings=[],notes=[],T=String(text||'');
+ let nm=T.match(/Employee(?:\s*Name)?\s*[:：]\s*([^\n]+)/i),header=nm?'Employee: '+nm[1].trim():'';
+ if(!header){let cm=T.match(/^[ \t]*(\d+)[ \t]*,[ \t]*([^,\n\d][^,\n]*?)[ \t]*,[ \t]*\d{1,2}\/\d{1,2}\/20\d\d/m);if(cm)header=`Employee: ${cm[2]} (AC-No. ${cm[1]})`}
+ const DATE=/\d{1,2}\/\d{1,2}\/20\d\d/,STATE=/c\s*\/\s*(?:in|out)/i,lines=[];
+ for(let raw of T.split(/\r?\n/)){let prev=lines.length?lines[lines.length-1]:'';if(prev&&DATE.test(prev)&&!STATE.test(prev)&&!DATE.test(raw)&&/^[\s,;|\t]*c\s*\/\s*(?:in|out)[\s,;|]*$/i.test(raw))lines[lines.length-1]=prev+' '+raw.trim();else lines.push(raw)}
+ const TIME=/(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?\s*[Mm]\.?(?![A-Za-z]))?/g;
+ for(let raw of lines){
+  let line=raw.replace(/[|*]/g,' ').replace(/[–—−]/g,'-'),dm=line.match(/(\d{1,2})\/(\d{1,2})\/(20\d\d)/);if(!dm)continue;
+  let mo=+dm[1],d=+dm[2];if(mo>12&&d<=12)[mo,d]=[d,mo];if(mo<1||mo>12||d<1||d>31)continue;
+  let date=dateKey(+dm[3],mo,d),rest=line.slice(dm.index+dm[0].length),times=[...rest.matchAll(TIME)];
+  if(/manual/i.test(rest))warnings.push(`${date}: marked "Manual" on the sheet. Verify that time.`);
+  if(times.length>=2){
+   let t0=times[0],t1=times[1],start=to24(t0[1],t0[2],t0[3],'in'),end=to24(t1[1],t1[2],t1[3],'out');
+   if(!start||!end){warnings.push(`${date}: could not read the times.`);continue}
+   chart[date]={date,start,end:end<=start?end+'+1':end};
+   let after=rest.slice(t1.index+t1[0].length),om=after.match(/^[\s,:\-]*(\d+(?:\.\d+)?)(?![\d:\/])/);
+   if(om)notes.push({date,ot_hours:+om[1]});
+   if(end<=start)warnings.push(`${date}: check-out ${end} is not after check-in ${start}; kept as an overnight shift.`);
+   else if((parseTime(end)-parseTime(start))/60<3)warnings.push(`${date}: only ${((parseTime(end)-parseTime(start))/60).toFixed(1)} h (${start}–${end}). Verify.`)}
+  else if(times.length===1){
+   let t=times[0],kind=/o\s*u\s*t/i.test(rest)?'out':(/c\s*\/\s*[il1]\s*n/i.test(rest)?'in':null);
+   if(!kind){warnings.push(`${date}: only one time found and no In/Out label.`);continue}
+   let tm=to24(t[1],t[2],t[3],kind);if(tm)punches.push({date,time:tm,kind})}
+  else warnings.push(`${date}: no times found on this line.`)}
+ let paired=pairPunches(punches);warnings.push(...paired.warnings);
+ for(let e of paired.entries)if(!chart[e.date])chart[e.date]=e;
+ let entries=Object.values(chart).sort((a,b)=>a.date.localeCompare(b.date));
+ let td=T.match(/Total Logged Days\s*[:：]\s*(\d+)/i);if(td&&+td[1]!==entries.length)warnings.push(`Sheet summary says ${td[1]} days but ${entries.length} were read.`);
+ let to=T.match(/Total Overtime[^:：\n]*[:：]\s*(\d+(?:\.\d+)?)/i);if(to&&notes.length){let sum=notes.reduce((q,n)=>q+n.ot_hours,0);if(Math.abs(sum-+to[1])>.01)warnings.push(`Sheet summary says ${to[1]} h OT but the noted OT column adds to ${sum} h.`)}
+ return {entries,warnings,notes,header}}
+function importFromText(){
+ let text=$('pasteBox').value;if(!text.trim()){$('scanStatus').textContent='Paste the copied text first.';return}
+ try{let r=parseTextTable(text);if(!r.entries.length){$('scanStatus').textContent='No attendance rows found. Rows need a date like 9/1/2026 and a check-in / check-out time. '+r.warnings.join(' | ');return}
+  $('scanPreview').textContent=(r.header?r.header+'\n':'')+r.entries.map(e=>`${e.date}  ${e.start} → ${e.end}`).join('\n');$('scanPreview').style.whiteSpace='pre-wrap';
+  applyResult({entries:r.entries,warnings:[]},r.warnings,r.notes)}
+ catch(e){$('scanStatus').textContent='Import failed: '+e.message}}
+function initCfgUI(){$('cfgLunchStart').value=CFG.lunchStart;$('cfgLunchMin').value=CFG.lunchMinutes;$('cfgHalfOut').value=CFG.halfOut;$('cfgHalfOT').value=CFG.halfOT;
+ $('cfgSaveBtn').onclick=()=>{try{parseTime($('cfgLunchStart').value.trim());parseTime($('cfgHalfOut').value.trim());let lm=+$('cfgLunchMin').value,ho=+$('cfgHalfOT').value;if(!(lm>=0&&lm<=240)||!(ho>=0&&ho<=12))throw Error('Check the lunch minutes (0–240) and half-day OT hours (0–12).');CFG={lunchStart:$('cfgLunchStart').value.trim(),lunchMinutes:lm,halfOut:$('cfgHalfOut').value.trim(),halfOT:ho};try{localStorage.setItem(CFG_KEY,JSON.stringify(CFG))}catch(e){}lastResults={};draw();resetTotals();$('cfgStatus').textContent='Rules saved. Press Calculate & Save to apply them.'}catch(e){$('cfgStatus').textContent=e.message}}}
+/* ---------- main scan ---------- */
+async function scan(){let file=$('sheetFile').files[0];$('scanPreview').textContent='';if(!file){$('scanStatus').textContent='Choose a photograph or Excel file first.';return}if(file.size>14*1024*1024){$('scanStatus').textContent='File must be under 14 MB.';return}let btn=$('scanBtn');btn.disabled=true;$('pasteBox').value='';let worker=null;
+ try{$('scanStatus').textContent='Reading file…';let punches=[],warnings=[],notes=[],header='';
+  if(/\.xlsx$/i.test(file.name)){if(!window.XLSX)throw Error('Excel library could not load. Connect to the internet and refresh.');let wb=XLSX.read(await file.arrayBuffer(),{cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});let header=-1,tc=-1,sc=-1;for(let i=0;i<Math.min(rows.length,15);i++){let h=rows[i].map(v=>String(v??'').trim().toLowerCase());tc=h.findIndex(x=>['time','date/time','datetime','timestamp'].includes(x));sc=h.findIndex(x=>['state','status','type','punch'].includes(x));if(tc>=0&&sc>=0){header=i;break}}if(header<0)throw Error('Excel headers not found. Need columns named Time and State.');for(let row of rows.slice(header+1)){let parsed=parsePunchDateTime(row[tc]);let kind=stateKind(row[sc]);if(parsed&&kind)punches.push({...parsed,kind})}}
+  else{let best=null,key=getVisionKey(),setStatus=t=>{$('scanStatus').textContent=t};
+   let gk=getGeminiKey();
+   if(gk){try{setStatus('Reading sheet with Gemini…');best=await geminiExtract(file,gk,getGeminiModel());warnings.push(...best.warnings);notes=best.notes;header=best.header;if(!best.punches.length){warnings.push('Gemini found no punches.');best=null}}catch(e){warnings.push('Gemini failed ('+e.message+'), so the next reader was used.');best=null}}
+   if(key&&!best){try{setStatus('Sending photo to Google Vision…');let fta=await visionOcr(file,key);if(!fta||!fta.text)warnings.push('Google Vision found no text in the photo.');else{let r=parseVision(fta);best={...r,label:'Google Vision'}}}
+    catch(e){warnings.push('Google Vision failed ('+e.message+'), so the built-in OCR was used instead.')}}
+   if(!best||best.punches.length<2){setStatus('Reading photo with built-in OCR…');let t=await runTesseract(file,setStatus);if(!best||t.punches.length>best.punches.length)best=t}
+   punches=best.punches;
+   $('scanPreview').textContent=`${best.label} read ${punches.length} punches.${header?'\n'+header:''}${notes.filter(n=>n.remark).length?'\nSheet remarks: '+notes.filter(n=>n.remark).map(n=>n.date+' '+n.remark).join('; '):''}\n`+punches.map(p=>`${p.date} ${p.time} ${p.kind==='in'?'C/In':'C/Out'}${p.guessed?' (state guessed)':''}`).join('\n').slice(0,2500);$('scanPreview').style.whiteSpace='pre-wrap';
+   if(best.inferred)warnings.push(`${best.inferred} In/Out label(s) were unreadable and were guessed from the In/Out order.`);
+   if(!punches.length)warnings.push('No punch rows recognised. Check photo clarity, orientation and printed C/In or C/Out labels.')}
+  let result=pairPunches(punches);
+  applyResult(result,warnings,notes)
+ }catch(e){$('scanStatus').textContent='Import failed: '+e.message}finally{if(worker)try{await worker.terminate()}catch(_){}btn.disabled=false}}
+function exportBackup(){let blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'}),a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download='overtime-manager-backup.json';a.click();URL.revokeObjectURL(url)}
+$('loadBtn').onclick=getMonth;$('calculateBtn').onclick=saveCalculate;$('clearBtn').onclick=clearMonth;$('addHolidayBtn').onclick=addHoliday;$('scanBtn').onclick=scan;$('pasteBtn').onclick=importFromText;$('pasteClearBtn').onclick=()=>{$('pasteBox').value=''};$('pasteBox').addEventListener('paste',ev=>{let t=(ev.clipboardData||window.clipboardData)?.getData('text');if(t){ev.preventDefault();$('pasteBox').value=t}$('sheetFile').value='';setTimeout(importFromText,50)});initVisionUI();initCfgUI();$('sheetFile').onchange=()=>{if($('sheetFile').files[0])scan()};$('exportBtn').onclick=exportBackup;$('importBtn').onclick=()=>$('backupFile').click();$('backupFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let obj=JSON.parse(await f.text());if(!obj.attendance||!obj.holidays)throw Error('Invalid backup file.');if(confirm('Replace the attendance and holidays currently stored in this browser?')){store=obj;persist();getMonth();$('status').textContent='Backup restored.'}}catch(err){$('status').textContent='Restore failed: '+err.message}e.target.value=''};
+getMonth();
+</script></body></html>
